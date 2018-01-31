@@ -1,0 +1,561 @@
+Script analyse des règles FW
+
+
+#Localisé l'execution du script et se déplacer à cet endroit
+
+$varCheminRepertoireScript = [System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Definition)
+cd $varCheminRepertoireScript
+
+#prompt user pour un chemin ou vide ("") pour traitement automatique 
+
+"Appuyer sur entrer pour aller chercher la configuration du fwpfs dans rancid 
+
+Sinon taper le chemin du fichier à analyser"
+
+$Content = ""
+$Content = Read-Host 
+
+# si Content est vide alors traitement automatique via conf rancid
+
+if ($content -eq"") { 
+
+#récupère le numéros de la dernière sauvegarde de rancid via l'URL du FWPFS, stock ce numéros dans la variable revision
+
+$url1 = 'http://rancidinfra01-v.cs.hub-t.net/cgi-bin/cvsweb/FORTINET/configs/fwpfs-5410-01.mgnt.hub-t.net'
+$page1 = Invoke-WebRequest -Uri $url1
+$temp = $page1.RawContent
+$revision = $temp.substring(1423,7)
+
+#Va chercher l'URL de la dernier sauvegarde du FWPFS par rancid
+
+$url2 = ""
+$page2 = Invoke-WebRequest -Uri $url2
+$content2 = $page2.RawContent  -replace "--More--          ",""
+
+# met le contenue dans un fichier file.txt (la commande invoke-webRequest met tout le contenu de l'URL sous forme d'un seul blok impossible de travaillé avec un foreach par ligne j'ai donc tout mis dans un fichier puis je lit le fichier pour le traitement par foreach)
+
+new-item file.txt –type file
+add-content file.txt $content2 
+
+# lecture du fichier et suppression de celui ci une foi les données stocké pour le traitement du script
+# stokage de la conf dans la variable rules
+
+$rules = get-content file.txt
+remove-item file.txt 
+
+}
+
+#lecture du contenue du fichier indiqué par l'utilisateur si il n'a pas choisi le traitement automatique en laissant vide
+
+else {
+
+# stokage de la conf dans la variable rules
+
+$rules = get-content $content
+
+}
+
+
+#on obtient la date pour créer le fichier l'arborésence qui portera dans son nom le jour et l'heure de la création du fichier
+
+$date = Get-Date | select Year, Month, Day, Hour, Minute | foreach {$_ -replace ":", "."}
+$date = $date -replace "@{Year=",""  -replace "; Month=","-" -replace "; Day=","-" -replace "; Hour=","-" -replace "; Minute=","H" -replace "}",""
+
+#Enregistrement du repertoire de travail dans les variables opath et oopath (orgin path) les deux variable seront utilisé pour enregistré les fichier 
+
+$opath = "C:\Result-Scripts\FW_Policy\$date"
+$oopath = $opath
+
+# création du repertoire 
+
+new-item $opath –type directory
+
+#récupère l'ensemble des repertoire 
+
+$directory = Get-ChildItem $opath | Where-Object { $_.PSIsContainer } | Select-Object Name
+
+#Extrait l'année et le moi de la date du jour
+
+$year = $date.substring(0,4)
+$month = $date.substring(5,3) -replace "-",""
+
+#évite que les variables soit null si la conversion en entier n'a pas pus se faire
+
+$intyear = 9999999
+$intmonth = 9999999
+
+#transforme l'année et le moi en entier (string to int)
+
+$ErrorActionPreference = "SilentlyContinue"
+$intyear = [int]$year
+$intmonth = [int]$month
+$ErrorActionPreference = "Continue"
+
+foreach ($dir IN $directory){
+
+    # récupère l'année et le moi de chaque répertoire présent passé
+    
+    $dir = "$dir"  -replace "@{Name=","" -replace "}",""
+    $dirY = $dir.substring(0,4)
+    $dirM = $dir.substring(5,3) -replace "-",""
+
+    #évite que les variables soit null si la conversion en entier n'a pas pus se faire
+
+    $intdirY = 9999999
+    $intdirM = 9999999
+
+    #transforme l'année et le moi en entier de chaque répertoire (string to int)
+
+    $ErrorActionPreference = "SilentlyContinue"
+    $intdirY = [int]$dirY
+    $intdirM = [int]$dirM
+    $ErrorActionPreference = "Continue"
+
+    # Supprimer les repertoires trop vieux de plus de 2 mois (vérifié que les conversions en entier se sont bien passé)
+
+   if ($intdirY -notmatch 9999999 -AND $intdirM -notmatch 9999999){ 
+
+        if ($intyear -eq $intdirY -and $intmonth - $intdirM -gt 2){ 
+        Remove-Item  "C:\Result-Sricpts\FW_Policy\$dir" -Confirm:$false -recurse
+        }
+        if ($intyear - $intdirY -gt 0 -and 12+$intmonth - $intdirM -gt 2){ 
+        Remove-Item  "C:\Result-Sricpts\FW_Policy\$dir" -Confirm:$false -recurse
+        }
+       if ($intyear - $intdirY -gt 1){ 
+        Remove-Item  "C:\Result-Sricpts\FW_Policy\$dir" -Confirm:$false -recurse
+        }
+   }
+}
+
+# pour chaque ligne de conf dans la variable rules on va répéré les mot clèf utilisé pour la configuration des règles FW et les stocké dans des varible
+
+foreach ($var IN $rules){
+
+    $var="$var"
+
+    # Déclaration des variables des policy
+
+    if ($var.contains("edit")){ 
+        $id = $var
+        $id = $id -replace "edit ",""
+        } 
+    if ($var.contains(" uuid ")){ 
+        $uuid = $var
+        $uuid = $uuid -replace "set",""
+        } 
+    if ($var.contains(" srcintf ")){ 
+        $srcintf = $var
+        $srcintf = $srcintf -replace "set",""
+        $srcintf
+        } 
+    if ($var.contains(" dstintf ")){ 
+        $dstintf = $var
+        $dstintf = $dstintf -replace "set","" 
+
+        } 
+    if ($var.contains(" srcaddr ")){ 
+        $srcaddr = $var
+        $srcaddr = $srcaddr -replace "set","" 
+          } 
+    if ($var.contains(" dstaddr ") ){ 
+        $dstaddr = $var
+        $dstaddr = $dstaddr -replace "set",""
+        } 
+    if ($var.contains(" action ")){ 
+        $action = $var
+        $action = $action -replace "set",""
+        } 
+    if ($var.contains(" schedule ") ){ 
+        $schedule = $var
+        $schedule = $schedule -replace "set",""
+        } 
+    if ($var.contains(" service ")){ 
+        $service = $var
+        $service = $service -replace "set",""
+        } 
+    if ($var.contains(" comments")){ 
+        $comments = $var
+        $comments = $comments -replace "set",""
+        }
+    if ($var.contains(" nat ")){ 
+        $nat = $var
+        $nat = $nat -replace "set",""
+        }
+    if ($var.contains(" ippool ")){ 
+        $ippool = $var
+        $ippool = $ippool -replace "set",""
+        }
+    if ($var.contains(" poolname ")){ 
+        $poolname = $var
+        $poolname = $poolname -replace "set",""
+        }
+    if ($var.contains(" status ") -and -not $var.contains("utm-status")){ 
+        $status = $var
+        $status = $status -replace "set",""
+        }
+
+        #fin de lecture des variables des policy
+
+        <#  traitement spécifique : changement de VDOM
+
+        Si une ligne de configuration indique "config vdom" cela veux dire que la configuration vient de changer de vdom à traiter. 
+        Le changement de vdom est réprésenté par les lignes suivante dans la configuration :
+        
+        config vdom 
+        edit vdom 
+        config system
+
+        Le script traite les ligne de la maniert suivante :
+
+        config vdom    > Mise à un de la variable changevdom qui indique que le vdom doit être changé
+        edit vdom      > Le mot clef "edit" enregistre le nom du vdom (string) dans la variable $id ( voir plus haut : les id de policy sont aussi sous la forme edit id)
+        config system  > Si le script vois cette lignes de configuration et qu'un changement de vdom est en atente (changevdom à 1) alors le script procédera à un changement de repertoire dans lequel il doit travailler (opath) pour travaillé dans un repertoire dédié au vdom
+
+
+       #>
+
+
+    if ($var.contains("config vdom")){ 
+        #cette variable à 1 indique qu'un changement de vdom est en atente
+        $changevdom = 1
+    }
+
+    if ($var.contains("config system")-and $changevdom -eq 1){ 
+        # lecture de la variable id pour récupéré le nom du vdom (mot clef "edit")
+        $vdom = $id
+        # cahngement du path par defaut pour créer les fichier
+        $opath ="$oopath\$vdom"
+        #Création du nouveau repertoire
+        $ErrorActionPreference = "SilentlyContinue"
+        new-item $opath –type directory
+        $ErrorActionPreference = "Continue"
+        
+        #chanrgement des policy approuvé lié au vdom 
+
+        $ApprovedPolicy = get-content "AP_$vdom.txt"
+
+        # remià 0 de la variable changevdom pour indiquer que le changement de vdom as été effectuer
+        $changevdom = 0
+    }
+    
+        #fin de lecture des variable du changement des vdom
+
+    <# traitement spécifique : Traitement des policy
+
+     Si une ligne de configuration indique "next" cela veux dire que fichier de configuration vas passé à la prochaine policy.
+     L'ensemble des variable enregistré concerne donc la même policy et le script peu donc ce servir de ces variable pour le traitement.
+     Une foi le traitement fini les variables serotn réinitialisé pour être sur que les varaibles non obligatoire qui ne seront pas forcément écrasé soit vide (exemple les commentaires)
+
+    #>
+
+    if ($var.contains("next")){
+
+        # vérification des policy validé
+
+        # vérification de l'ID et transformation en entier
+
+        $intid = 9999999
+        $ErrorActionPreference = "SilentlyContinue"
+        $intid = [int]$id 
+        $ErrorActionPreference = "Continue"
+            
+            # vérification que l'ID a pus être transforméer en entier
+
+            if ($intid -notmatch 9999999){
+
+                # création d'une variable de controle 0 = la policy ne correspond pas à une variable approuver (la traitement peu donc se faire)
+
+                $var3 = 0
+
+                foreach ($var2 IN $ApprovedPolicy){
+
+                    # Chanrgement des lignes du fichier approuve policy 
+
+                    $intvar2 = 9999998
+                    $ErrorActionPreference = "SilentlyContinue"
+                    $intvar2 = [int]$var2
+                    $ErrorActionPreference = "Continue"
+					
+					# si la ligne correspond à un entier alors on la compare au numéros de la policy (sinon on compare le nombre 9999998 (d'ici à ce qu'on arrive à 9999998 policy je ne serai plus la depuis longtemps)
+
+                    if ($intvar2 -eq $intid){ 
+					# si le numéros de policy correspond à un numéros d'une ligne du fichier alors la variable de controle est changé à 1
+                         $var3=1
+                    }
+                }
+
+				# si la variable de controle est bien toujours à 0 alors on peu traiter la policy 
+				
+                    if ($var3 -eq 0){
+                        
+<#     Règles type à créer                   
+ 
+                       if ( *condition à mettre*){
+                       
+                            $path= $opath " *chemin des fichiers texte*"
+                            $id
+            
+                            $name = $srcintf + "_to_"+ $dstintf 
+                            $name = $name -replace("srcintf ","") -replace("dstintf ","") -replace("`"","") -replace(" ","")
+ 
+
+                            $ErrorActionPreference = "SilentlyContinue"
+                            new-item "$path" –type directory
+                            new-item "$path\$name.txt" –type file
+                            $ErrorActionPreference = "Continue"
+
+                            $Acl = Get-Acl "$path\$name.txt"
+                            $Ar = New-Object  system.security.accesscontrol.filesystemaccessrule("EIS-superadmins","FullControl","Allow")
+                            $Acl.SetAccessRule($Ar)
+                            Set-Acl "$path\$name.txt" $Acl
+
+                            $value =  "$id, $srcaddr , $dstaddr , $service , $action , $schedule  , $comments , $nat , $ippool , $poolname , $status" -replace "\s{2,}" , " "
+
+                            ADD-content -path "$path\$name.txt" -value "$value"
+                            ADD-content -path "$path\$name.txt" -value " " 
+         
+                        }
+#>
+
+                        # règles non respécté
+
+
+                        if ( $status.contains("disable")) { 
+                       
+                            # j'aurai du créer une fonction pour ça
+							
+							#on récupère le chemin sur lequel on va travailler  et on créer le repertoire (opath ici indique le chemin avec le vdom)
+							
+							$path=  "$opath\0_Disable"
+                            $id
+							
+							#on créer le nom du fichier en fonction des interface sources et destination
+							
+                            $name = $srcintf + "_to_"+ $dstintf 
+                            $name = $name -replace("srcintf ","") -replace("dstintf ","") -replace("`"","") -replace(" ","")
+ 
+							#on créer les répertoires et fichier (silent error pour éviter les flood d'erreur si le fichier ou repertoire éxiste déja
+							
+                            $ErrorActionPreference = "SilentlyContinue"
+                            new-item "$path" –type directory
+                            new-item "$path\$name.txt" –type file
+                            $ErrorActionPreference = "Continue"
+							
+							# Ajout de l'acl au fichier poru permettre la gestion à EIS
+							
+                            $Acl = Get-Acl "$path\$name.txt"
+                            $Ar = New-Object  system.security.accesscontrol.filesystemaccessrule("EIS-superadmins","FullControl","Allow")
+                            $Acl.SetAccessRule($Ar)
+                            Set-Acl "$path\$name.txt" $Acl
+
+							# On ajoute les information de la policy dans le fichier 
+							
+                            $value =  "$id, $srcaddr , $dstaddr , $service , $action , $schedule  , $comments , $nat , $ippool , $poolname  , $status" -replace "\s{2,}" , " "
+
+                            ADD-content -path "$path\$name.txt" -value "$value"
+                            ADD-content -path "$path\$name.txt" -value " " 
+         
+                        }
+                        elseif ( $service.contains("ALL") -and -not $service.contains("ALL_ICMP") -and $dstaddr.contains("all") -and $srcaddr.contains("all")){
+                       
+                            
+                            $path=  "$opath\1_ALL"
+                            $id
+           
+                            $name = $srcintf + "_to_"+ $dstintf 
+                            $name = $name -replace("srcintf ","") -replace("dstintf ","") -replace("`"","") -replace(" ","")
+ 
+
+                            $ErrorActionPreference = "SilentlyContinue"
+                            new-item "$path" –type directory
+                            new-item "$path\$name.txt" –type file
+                            $ErrorActionPreference = "Continue"
+
+                            $Acl = Get-Acl "$path\$name.txt"
+                            $Ar = New-Object  system.security.accesscontrol.filesystemaccessrule("EIS-superadmins","FullControl","Allow")
+                            $Acl.SetAccessRule($Ar)
+                            Set-Acl "$path\$name.txt" $Acl
+
+                            $value =  "$id, $srcaddr , $dstaddr , $service , $action , $schedule  , $comments , $nat , $ippool , $poolname  , $status" -replace "\s{2,}" , " "
+
+                            ADD-content -path "$path\$name.txt" -value "$value"
+                            ADD-content -path "$path\$name.txt" -value " " 
+         
+                        }
+                        elseif ( $service.contains("ALL") -and -not $service.contains("ALL_ICMP") -and $srcaddr.contains("all")){
+                       
+                            $path=  "$opath\2_Ports_Sources_all"
+                            $id
+           
+                            $name = $srcintf + "_to_"+ $dstintf 
+                            $name = $name -replace("srcintf ","") -replace("dstintf ","") -replace("`"","") -replace(" ","")
+ 
+
+                            $ErrorActionPreference = "SilentlyContinue"
+                            new-item "$path" –type directory
+                            new-item "$path\$name.txt" –type file
+                            $ErrorActionPreference = "Continue"
+
+                            $Acl = Get-Acl "$path\$name.txt"
+                            $Ar = New-Object  system.security.accesscontrol.filesystemaccessrule("EIS-superadmins","FullControl","Allow")
+                            $Acl.SetAccessRule($Ar)
+                            Set-Acl "$path\$name.txt" $Acl
+
+                            $value =  "$id, $srcaddr , $dstaddr , $service , $action , $schedule  , $comments , $nat , $ippool , $poolname  , $status" -replace "\s{2,}" , " "
+
+                            ADD-content -path "$path\$name.txt" -value "$value"
+                            ADD-content -path "$path\$name.txt" -value " " 
+         
+                        }
+                        elseif ( $service.contains("ALL")  -and -not $service.contains("ALL_ICMP") -and $dstaddr.contains("all") ){
+                       
+                            $path=  "$opath\3_Ports_Destinations_all"
+                            $id
+           
+                            $name = $srcintf + "_to_"+ $dstintf 
+                            $name = $name -replace("srcintf ","") -replace("dstintf ","") -replace("`"","") -replace(" ","")
+ 
+
+                            $ErrorActionPreference = "SilentlyContinue"
+                            new-item "$path" –type directory
+                            new-item "$path\$name.txt" –type file
+                            $ErrorActionPreference = "Continue"
+
+                            $Acl = Get-Acl "$path\$name.txt"
+                            $Ar = New-Object  system.security.accesscontrol.filesystemaccessrule("EIS-superadmins","FullControl","Allow")
+                            $Acl.SetAccessRule($Ar)
+                            Set-Acl "$path\$name.txt" $Acl
+
+                            $value =  "$id, $srcaddr , $dstaddr , $service , $action , $schedule  , $comments , $nat , $ippool , $poolname  , $status" -replace "\s{2,}" , " "
+
+                            ADD-content -path "$path\$name.txt" -value "$value"
+                            ADD-content -path "$path\$name.txt" -value " " 
+         
+                        }
+                        elseif ( $dstaddr.contains("all") -and $srcaddr.contains("all")){
+                       
+                            $path=  "$opath\4_Sources_Destinations_all"
+                            $id
+           
+                            $name = $srcintf + "_to_"+ $dstintf 
+                            $name = $name -replace("srcintf ","") -replace("dstintf ","") -replace("`"","") -replace(" ","")
+ 
+
+                            $ErrorActionPreference = "SilentlyContinue"
+                            new-item "$path" –type directory
+                            new-item "$path\$name.txt" –type file
+                            $ErrorActionPreference = "Continue"
+
+                            $Acl = Get-Acl "$path\$name.txt"
+                            $Ar = New-Object  system.security.accesscontrol.filesystemaccessrule("EIS-superadmins","FullControl","Allow")
+                            $Acl.SetAccessRule($Ar)
+                            Set-Acl "$path\$name.txt" $Acl
+
+                            $value =  "$id, $srcaddr , $dstaddr , $service , $action , $schedule  , $comments , $nat , $ippool , $poolname  , $status" -replace "\s{2,}" , " "
+
+                            ADD-content -path "$path\$name.txt" -value "$value"
+                            ADD-content -path "$path\$name.txt" -value " " 
+         
+                        }
+                        elseif ($service.contains("ALL")-and -not $service.contains("ALL_ICMP")){
+
+                            $path=  "$opath\5_Ports_all"
+                            $id
+           
+                            $name = $srcintf + "_to_"+ $dstintf 
+                            $name = $name -replace("srcintf ","") -replace("dstintf ","") -replace("`"","") -replace(" ","")
+ 
+
+                            $ErrorActionPreference = "SilentlyContinue"
+                            new-item "$path" –type directory
+                            new-item "$path\$name.txt" –type file
+                            $ErrorActionPreference = "Continue"
+
+                            $Acl = Get-Acl "$path\$name.txt"
+                            $Ar = New-Object  system.security.accesscontrol.filesystemaccessrule("EIS-superadmins","FullControl","Allow")
+                            $Acl.SetAccessRule($Ar)
+                            Set-Acl "$path\$name.txt" $Acl
+
+                            $value =  "$id, $srcaddr , $dstaddr , $service , $action , $schedule  , $comments , $nat , $ippool , $poolname  , $status" -replace "\s{2,}" , " "
+
+                            ADD-content -path "$path\$name.txt" -value "$value"
+                            ADD-content -path "$path\$name.txt" -value " " 
+         
+                        }
+                        elseif ($srcaddr.contains("all")){
+
+                            $path=  "$opath\6_Sources_all"
+                            $id
+          
+                            $name = $srcintf + "_to_"+ $dstintf 
+                            $name = $name -replace("srcintf ","") -replace("dstintf ","") -replace("`"","") -replace(" ","")
+ 
+                            $ErrorActionPreference = "SilentlyContinue"
+                            new-item "$path" –type directory
+                            new-item "$path\$name.txt" –type file
+                            $ErrorActionPreference = "Continue"
+
+                            $Acl = Get-Acl "$path\$name.txt"
+                            $Ar = New-Object  system.security.accesscontrol.filesystemaccessrule("EIS-superadmins","FullControl","Allow")
+                            $Acl.SetAccessRule($Ar)
+                            Set-Acl "$path\$name.txt" $Acl
+
+                            $value =  "$id, $srcaddr , $dstaddr , $service , $action , $schedule  , $comments , $nat , $ippool , $poolname  , $status" -replace "\s{2,}" , " "
+
+                            ADD-content -path "$path\$name.txt" -value "$value"
+                            ADD-content -path "$path\$name.txt" -value ""
+  
+                        }
+                        elseif ($dstaddr.contains("all")){
+
+                            $path=  "$opath\7_Destination_all"
+                            $id
+           
+                            $name = $srcintf + "_to_"+ $dstintf 
+                            $name = $name -replace("srcintf ","") -replace("dstintf ","") -replace("`"","") -replace(" ","")
+ 
+                            $ErrorActionPreference = "SilentlyContinue"
+                            new-item "$path" –type directory
+                            new-item "$path\$name.txt" –type file
+                            $ErrorActionPreference = "Continue"
+
+                            $Acl = Get-Acl "$path\$name.txt"
+                            $Ar = New-Object  system.security.accesscontrol.filesystemaccessrule("EIS-superadmins","FullControl","Allow")
+                            $Acl.SetAccessRule($Ar)
+                            Set-Acl "$path\$name.txt" $Acl
+
+                            $value =  "$id, $srcaddr , $dstaddr , $service , $action , $schedule  , $comments , $nat , $ippool , $poolname  , $status" -replace "\s{2,}" , " "
+
+                            ADD-content -path "$path\$name.txt" -value "$value"
+                            ADD-content -path "$path\$name.txt" -value ""
+
+                        }
+
+
+                }
+
+                    
+                    #reset variable
+
+                    $id = ""
+                    $uuid = ""
+                    $intid = 1
+                    $srcintf = ""
+                    $dstintf = ""
+                    $srcaddr = "1"
+                    $dstaddr = ""
+                    $action = ""
+                    $schedule = ""
+                    $service = ""
+                    $comments = ""
+                    $nat = ""
+                    $ippool = ""
+                    $poolname = ""
+                    $status = ""
+            
+            }
+
+        }
+
+    }
+    
