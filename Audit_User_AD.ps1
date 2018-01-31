@@ -6,7 +6,7 @@
 # Le server  sur lequel ce script est exécuté doit pouvoir contacter les serveurs désirés sur le port DCE-RPC (UDP et TCP 135)
 # Le compte utilisé pour exécuter le script doit etre admin des serveurs contactés
 #***************************************
-# Si votre domaine est en Français vous devez changer les ligne 70 et 71 du script
+# Si votre domaine est en anglais vous devez changer les ligne 70 et 71 du script
 #***************************************
 
 # Chargement du module Active directory 
@@ -67,8 +67,8 @@ $Content = Read-Host
 # Si $Content est vide alors traitement automatique avec les ordinateurs du domaine
 
 if ($content -eq "") { 
-    #$listServer = Get-ADGroupMember -Identity "Ordinateurs du domaine" # Ligne à utiliser pour un domaine en français
-    $listServer = Get-ADGroupMember -Identity "Domain Computers" # Ligne à utiliser pour un domaine en Anglais
+    $listServer = Get-ADGroupMember -Identity "Ordinateurs du domaine" # Ligne à utiliser pour un domaine en français
+    #$listServer = Get-ADGroupMember -Identity "Domain Computers" # Ligne à utiliser pour un domaine en Anglais
     }
 # Sinon On cherche le nom du groupe entré par l'utilisateur
 Else{
@@ -97,9 +97,12 @@ $DomainDirectory = "$opath\$Domain"
 $LocalDirectory = "$opath\Local"
 $recap = "$opath\recap.txt"
 $unrecheable = "$opath\unreachable.txt"
+$DomainUserDirectory = "$opath\$Domain\UserAccess"
+
 
 new-item $opath –type directory
 new-item $DomainDirectory –type directory
+new-item $DomainUserDirectory –type directory
 new-item $LocalDirectory –type directory
 new-item $recap –type file 
 new-item $unrecheable –type file 
@@ -119,8 +122,8 @@ foreach($servers in $listServer){
     ADD-content -path $recap -value "**************************************"
     ADD-content -path $recap -value " "
     ADD-content -path $recap -value "**************************************"
-    ADD-content -path $recap -value "$server"
-    ADD-content -path $recap -value "************"
+    ADD-content -path $recap -value "        $server"
+    ADD-content -path $recap -value "********************"
 
     # On utilise la fonction get-localadmin pour obtenir la liste des utilisateurs 
 
@@ -138,8 +141,8 @@ foreach($servers in $listServer){
 
         # On ajoute donc la partit admin au fichié recap
 
-        ADD-content -path $recap -value "ADMINS"
-        ADD-content -path $recap -value "************"
+        ADD-content -path $recap -value "        ADMINS"
+        ADD-content -path $recap -value "********************"
 
         # Pour chaque utilisateur dans le groupe administrator local
 
@@ -173,9 +176,9 @@ foreach($servers in $listServer){
 
         # On ajoute donc la partit RDP USERS au fichié recap
 
-        ADD-content -path $recap -value "************"
-        ADD-content -path $recap -value "RDP USERS"
-        ADD-content -path $recap -value "************"
+        ADD-content -path $recap -value "********************"
+        ADD-content -path $recap -value "        RDP USERS"
+        ADD-content -path $recap -value "********************"
 
         # Pour chaque utilisateur dans le groupe Remote Dektop Users 
     
@@ -211,9 +214,9 @@ foreach($servers in $listServer){
 
         # On ajoute donc la partit RDP USERS au fichié recap
 
-        ADD-content -path $recap -value "************"
-        ADD-content -path $recap -value "USERS"
-        ADD-content -path $recap -value "************"
+        ADD-content -path $recap -value "********************"
+        ADD-content -path $recap -value "        USERS"
+        ADD-content -path $recap -value "********************"
     
         # Pour chaque utilisateur dans le groupe Users 
 
@@ -270,30 +273,114 @@ foreach ($file IN $directory){
 
     $users = ""
     $ErrorActionPreference = "SilentlyContinue"
-    $users = get-adgroupmember $file -recursive | select name 
+    $users = get-adgroupmember $file -recursive 
     $ErrorActionPreference = "Continue"
 
     # Si $users est vide c'est que le fichier étudier correspond à un utilisateur ou a un groupe est vide
 
     if ($users -eq "") {
-        # traitement à définir ?
+        
+        $user = Get-ADUser "$file" |select name
+        $Enabled = Get-ADUser "$file" |select enabled
+        $Enabled = "$Enabled" 
+        $user = "$user"
+        $User = "$user" -replace "@{name=","" -replace '}',''
+
+        if ( $enabled.contains("@{enabled=False}")) {
+
+             $User = "0-Disable - $user "
+             
+
+            }
+
+                                    
+        $ErrorActionPreference = "SilentlyContinue"
+        new-item "$DomainUserDirectory\$user.txt" –type file
+        $ErrorActionPreference = "Continue"
+
+        Add-Content "$DomainUserDirectory\$user.txt" ""
+        Add-Content "$DomainUserDirectory\$user.txt" "**************************************"
+        Add-Content "$DomainUserDirectory\$user.txt" "        User Direct Acces"
+        Add-Content "$DomainUserDirectory\$user.txt" "********************"
+        Add-Content "$DomainUserDirectory\$user.txt" ""  
+         
+        $contents = Get-Content "$DomainDirectory\$file.txt"
+        #$contents
+        #pause
+
+        foreach ($content IN $contents){
+            #$content
+
+            Add-Content "$DomainUserDirectory\$user.txt" "$content"
+            #pause
+            }
+        
         }
     # Sinon c'est que le fichier étudier correspond à un groupe
     else{
         
+
+        foreach ($User IN $users){
+
+
+            $enabled = Get-ADUser $user | select enabled 
+            $Enabled = "$Enabled" 
+            $User =  Get-ADUser $user | select name 
+            $user = "$user"
+            $User = $user -replace "@{name=","" -replace '}',''
+            
+            if ( $enabled.contains("@{enabled=False}")){
+
+             $User = "0-Disable - $user"
+                          
+
+            }
+
+            
+            
+            $ErrorActionPreference = "SilentlyContinue"
+            new-item "$DomainUserDirectory\$User.txt" –type file
+            $ErrorActionPreference = "Continue"
+
+            Add-Content "$DomainUserDirectory\$user.txt" ""
+            Add-Content "$DomainUserDirectory\$user.txt" "**************************************"
+            Add-Content "$DomainUserDirectory\$user.txt" "        Group : $file"
+            Add-Content "$DomainUserDirectory\$user.txt" "********************"
+            Add-Content "$DomainUserDirectory\$user.txt" "" 
+             
+            $contents = Get-Content "$DomainDirectory\$file.txt"
+            #$contents
+            #pause
+
+            foreach ($content IN $contents){
+
+                Add-Content "$DomainUserDirectory\$user.txt" "$content"
+            }
+            }
+
         # On ajoute donc les lignes correspondant au membre du groupe
 
         ADD-content -path "$DomainDirectory\$file.txt" " "
         ADD-content -path "$DomainDirectory\$file.txt" "******************************************"
-        ADD-content -path "$DomainDirectory\$file.txt" "GROUP MEMBER"
+        ADD-content -path "$DomainDirectory\$file.txt" "              GROUP MEMBER"
         ADD-content -path "$DomainDirectory\$file.txt" "******************************************"
         ADD-content -path "$DomainDirectory\$file.txt" " "
  
         # Pour chaque utilisateur on ajoute son nom dans la liste des membres du groupe
         
         foreach ($User IN $users){
+            $enabled = Get-ADUser $user | select enabled
+            $Enabled = "$Enabled"  
+            $User = Get-ADUser $user | select name 
+            $user = "$user"
+            if (  $enabled.contains("@{enabled=False}")) {
+                $User = "$user | *account disable*"
+            }
+
             $User = "$user" -replace "@{name=","" -replace '}',''
             ADD-content -path "$DomainDirectory\$file.txt" "$user"
+
+
             }
         }
     }
